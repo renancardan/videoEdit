@@ -1,70 +1,75 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const ffmpeg = require("fluent-ffmpeg");
-const fileUpload = require("express-fileupload");
-const app = express();
+const express = require('express')
 
-ffmpeg.setFfmpegPath("C:/ffmpeg/bin/ffmpeg.exe");
+const fs = require('fs')
 
-ffmpeg.setFfprobePath("C:/ffmpeg/bin");
+const { exec } = require('child_process')
 
-ffmpeg.setFlvtoolPath("C:/flvtool");
+const path = require('path')
 
-console.log(ffmpeg);
-// parse application/x-www-form-urlencoded
-app.use(bodyParser.urlencoded({ extended: false }));
+const multer = require('multer')
 
-// parse application/json
-app.use(bodyParser.json());
+const bodyParser = require('body-parser')
 
-app.use(
-    fileUpload({
-      useTempFiles: true,
-      tempFileDir: "/tmp/",
-    })
-  );
-app.get("/", (req, res) => {
-  res.sendFile(__dirname + "/index.html");
-});
+const app = express()
 
-app.post("/convert", (req, res) => {
+var dir = 'public';
+var subDirectory = 'public/uploads'
 
-    let to = req.body.to;
-    let file = req.files.file;
-    let fileName = `output.${to}`;
-    console.log(to);
-    console.log(file);
-  
-    file.mv("tmp/" + file.name, function (err) {
-      if (err) return res.sendStatus(500).send(err);
-      console.log("File Uploaded successfully");
-    });
-  
-    ffmpeg("tmp/" + file.name)
-      .withOutputFormat(to)
-      .on("end", function (stdout, stderr) {
-        console.log("Finished");
-        res.download(__dirname + fileName, function (err) {
-          if (err) throw err;
-  
-          fs.unlink(__dirname + fileName, function (err) {
-            if (err) throw err;
-            console.log("File deleted");
-          });
-        });
-        fs.unlink("tmp/" + file.name, function (err) {
-          if (err) throw err;
-          console.log("File deleted");
-        });
-      })
-      .on("error", function (err) {
-        console.log("an error happened: " + err.message);
-        fs.unlink("tmp/" + file.name, function (err) {
-          if (err) throw err;
-          console.log("File deleted");
-        });
-      })
-      .saveToFile(__dirname + fileName);
-  });
+if (!fs.existsSync(dir)){
+    fs.mkdirSync(dir);
 
-app.listen(5000);
+    fs.mkdirSync(subDirectory)
+
+}
+
+var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, 'public/uploads')
+    },
+    filename: function (req, file, cb) {
+      cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname))
+    }
+})
+
+var upload = multer({storage:storage})
+
+app.use(bodyParser.urlencoded({extended:false}))
+app.use(bodyParser.json())
+app.use(express.static('public'))
+
+const PORT = process.env.PORT || 3000
+
+app.get('/',(req,res) => {
+    res.sendFile(__dirname +'/home.html')
+})
+
+app.post('/convert',upload.single('file'),(req,res,next) => {
+    if(req.file){
+        console.log(req.file.path)
+
+        var output = Date.now() + "output.mp3"
+
+        exec(`ffmpeg -i ${req.file.path} ${output}`, (error, stdout, stderr) => {
+            if (error) {
+                console.log(`error: ${error.message}`);
+                return;
+            }
+            else{
+                console.log("file is converted")
+            res.download(output,(err) => {
+                if(err) throw err
+                
+                fs.unlinkSync(req.file.path)
+                fs.unlinkSync(output)
+
+                next()
+
+            })
+        }
+        })
+    }
+})
+
+app.listen(PORT,() => {
+    console.log(`App is listening on Port ${PORT}`)
+})
